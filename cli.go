@@ -199,8 +199,9 @@ func extractVersionNumber(version string) string {
 // Start 启动交互式命令行
 func (c *CLI) Start() error {
 	for {
+		// 设置提示符
 		prompt := c.getPrompt()
-		fmt.Fprintf(c.term, prompt)
+		c.reader.SetPrompt(prompt)
 		
 		// 支持多行 SQL（以分号结束）
 		sqlStr := c.readMultiLine()
@@ -252,12 +253,21 @@ func (c *CLI) readMultiLine() string {
 			return ""
 		}
 		
-		// 如果是 psql 命令，直接返回（不需要分号）
-		if strings.HasPrefix(trimmed, "\\") {
-			if len(lines) == 0 {
+		// 如果是第一行，检查是否是特殊命令（不需要分号）
+		if len(lines) == 0 {
+			// 如果是 psql 命令（以反斜杠开头），直接返回
+			if strings.HasPrefix(trimmed, "\\") {
 				return trimmed
 			}
-			// 如果已经有输入，追加这行
+			// 检查其他特殊命令（exit, quit, help）
+			cmdLower := strings.ToLower(trimmed)
+			if cmdLower == "exit" || cmdLower == "quit" || cmdLower == "help" {
+				return trimmed
+			}
+		}
+		
+		// 如果已经有输入且当前行是反斜杠命令，追加这行
+		if len(lines) > 0 && strings.HasPrefix(trimmed, "\\") {
 			lines = append(lines, line)
 			continue
 		}
@@ -269,8 +279,8 @@ func (c *CLI) readMultiLine() string {
 			break
 		}
 		
-		// 多行提示符
-		fmt.Fprintf(c.term, "%s-> ", c.database)
+		// 设置多行提示符
+		c.reader.SetPrompt(fmt.Sprintf("%s-> ", c.database))
 	}
 	
 	result := strings.Join(lines, "\n")
@@ -476,7 +486,7 @@ func (c *CLI) handlePsqlCommand(cmd string) bool {
 // connectToDatabase 连接到指定数据库
 func (c *CLI) connectToDatabase(dbName string) {
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=10",
-		c.host, c.port, c.username, c.password, dbName)
+		c.config.Host, c.config.Port, c.config.Username, c.config.Password, dbName)
 	
 	newDB, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -497,7 +507,7 @@ func (c *CLI) connectToDatabase(dbName string) {
 	c.db = newDB
 	c.database = dbName
 	
-	fmt.Fprintf(c.term, "You are now connected to database \"%s\" as user \"%s\".\n", dbName, c.username)
+	fmt.Fprintf(c.term, "You are now connected to database \"%s\" as user \"%s\".\n", dbName, c.config.Username)
 }
 
 // describeTable 描述表结构
@@ -622,7 +632,7 @@ func (c *CLI) showSQLHelp(cmd string) {
 // showConnectionInfo 显示连接信息
 func (c *CLI) showConnectionInfo() {
 	fmt.Fprintf(c.term, "You are connected to database \"%s\" as user \"%s\" via socket in \"%s\" at port \"%d\".\n",
-		c.database, c.username, c.host, c.port)
+		c.database, c.config.Username, c.config.Host, c.config.Port)
 }
 
 // Close 关闭数据库连接
